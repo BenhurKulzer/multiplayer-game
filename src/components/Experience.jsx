@@ -1,7 +1,39 @@
+import { useEffect, useState } from "react";
 import { Environment, OrbitControls } from "@react-three/drei";
+import { Joystick, insertCoin, myPlayer, onPlayerJoin } from "playroomkit";
+
 import { Map } from "./Map";
+import { SoldierController } from "./SoldierController";
 
 export const Experience = () => {
+  const [players, setPlayers] = useState([]);
+
+  const start = async () => {
+    await insertCoin();
+  }
+
+  useEffect(() => {
+    start();
+
+    onPlayerJoin((player) => {
+      const joystick = new Joystick(player, {
+        type: "angular",
+        buttons: [{ id: "fire", label: "Fire" }]
+      });
+
+      const newPlayer = { player, joystick };
+      player.setState("health", 100);
+      player.setState("deaths", 0);
+      player.setState("kills", 0);
+
+      setPlayers((players) => [...players, newPlayer]);
+
+      player.onQuit(() => {
+        setPlayers((players) => players.filter((person) => person.state.id !== person.id));
+      })
+    })
+  }, []);
+
   return (
     <>
       <directionalLight
@@ -22,6 +54,18 @@ export const Experience = () => {
       <OrbitControls />
       
       <Map />
+
+      {
+        players.map(({ state, joystick }, index) => {
+          <SoldierController
+            key={state.id}
+            position-x={idx * 2}
+            state={state}
+            joystick={joystick}
+            userPlayer={state.id === myPlayer()?.id}
+          />
+        })
+      }
 
       <Environment preset="sunset" />
     </>
