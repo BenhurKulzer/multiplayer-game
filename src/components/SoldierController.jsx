@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import { Soldier } from "./Soldier";
+import { RigidBody } from "@react-three/rapier";
 
 export function SoldierController ({
   state,
@@ -14,12 +15,14 @@ export function SoldierController ({
 
   return (
     <group ref={group} {...props}>
-      <group ref={character}>
-        <Soldier
-          color={state.state.profile.color}
-          animation={animation}
-        />
-      </group>
+      <RigidBody>
+        <group ref={character}>
+          <Soldier
+            color={state.state.profile.color}
+            animation={animation}
+          />
+        </group>
+      </RigidBody>
     </group>
   );
 }
