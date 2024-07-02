@@ -12,11 +12,13 @@ export function SoldierController ({
   state,
   joystick,
   userPlayer,
+  onFire,
   ...props
 }) {
   const group = useRef();
   const controls = useRef();
   const character = useRef();
+  const lastShoot = useRef(0);
   const rigidBody = useRef();
 
   const [animation, setAnimation] = useState("Idle");
@@ -63,7 +65,24 @@ export function SoldierController ({
 
       if (pos) rigidBody.current.setTranslation(pos);
     }
-  })
+  });
+
+  if (joystick.isPressed("fire")) {
+    setAnimation("Idle_Shoot");
+
+    if (isHost()) {
+      if (Date.now() - lastShoot.current > FIRE_RATE) {
+        lastShoot.current = Date.now();
+
+        const newBullet = {
+          id: state.id + "-" + new Date(),
+          position: vec3(rigidBody.current.translation()),
+          angle,
+          player: state.id
+        };
+      }
+    }
+  }
 
   return (
     <group ref={group} {...props}>

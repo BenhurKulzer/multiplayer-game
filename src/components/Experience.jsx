@@ -7,6 +7,15 @@ import { SoldierController } from "./SoldierController";
 
 export const Experience = () => {
   const [players, setPlayers] = useState([]);
+  const [bullets, setBullets] = useState([]);
+
+  const onFire = (bullet) => {
+    setBullets((bullets) => [...bullets, bullet]);
+  }
+
+  const onHit = (bulletId) => {
+    setBullets((bullets) => bullets.filter((b) => b.id !== bulletId));
+  }
 
   const start = async () => {
     await insertCoin();
@@ -60,7 +69,14 @@ export const Experience = () => {
             state={state}
             joystick={joystick}
             userPlayer={state.id === myPlayer()?.id}
+            onFire={onFire}
           />
+        })
+      }
+
+      {
+        bullets.map((bullet) => {
+          <Bullet key={bullet.id} {...bullet} onHit={() => onHit(bullet.id)} />
         })
       }
 
