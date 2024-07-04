@@ -1,35 +1,61 @@
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+
+import { Billboard, CameraControls, Text } from "@react-three/drei";
+import { useFrame, useThree } from "@react-three/fiber";
 import { CapsuleCollider, RigidBody, vec3 } from "@react-three/rapier";
-import { useFrame } from "@react-three/fiber";
+
+import { isHost } from "playroomkit";
 
 import { Soldier } from "./Soldier";
-import { isHost } from "playroomkit";
-import { CameraControls } from "@react-three/drei";
 
-const MOVEMENT_SPEED = 200;
+const MOVEMENT_SPEED = 202;
+const FIRE_RATE = 380;
+export const WEAPON_OFFSET = {
+  x: -0.2,
+  y: 1.4,
+  z: 0.8,
+};
 
-export function SoldierController ({
+export const SoldierController = ({
   state,
   joystick,
   userPlayer,
+  onKilled,
   onFire,
+  downgradedPerformance,
   ...props
-}) {
+}) => {
   const group = useRef();
-  const controls = useRef();
   const character = useRef();
+  const rigidbody = useRef();
   const lastShoot = useRef(0);
-  const rigidBody = useRef();
+  const controls = useRef();
+  const directionalLight = useRef();
 
   const [animation, setAnimation] = useState("Idle");
+  const [weapon, setWeapon] = useState("AK");
+
+  const scene = useThree((state) => state.scene);
+  
+  const spawnRandomly = () => {
+    const spawns = [];
+    for (let i = 0; i < 1000; i++) {
+      const spawn = scene.getObjectByName(`spawn_${i}`);
+      if (spawn) {
+        spawns.push(spawn);
+      } else {
+        break;
+      }
+    }
+    const spawnPos = spawns[Math.floor(Math.random() * spawns.length)].position;
+    rigidbody.current.setTranslation(spawnPos);
+  };
 
   useFrame((_, delta) => {
     if (controls.current) {
       const cameraDistanceY = window.innerWidth < 1024 ? 16 : 20;
       const cameraDistanceZ = window.innerWidth < 1024 ? 12 : 16;
-
-      const playerWorldPos = vec3(rigidBody.current.translation());
-
+      const playerWorldPos = vec3(rigidbody.current.translation());
       controls.current.setLookAt(
         playerWorldPos.x,
         playerWorldPos.y + (state.state.dead ? 12 : cameraDistanceY),
@@ -41,10 +67,17 @@ export function SoldierController ({
       );
     }
 
+    if (state.state.dead) {
+      setAnimation("Death");
+
+      return;
+    }
+
     const angle = joystick.angle();
 
     if (joystick.isJoystickPressed() && angle) {
       setAnimation("Run");
+
       character.current.rotation.y = angle;
 
       const impulse = {
@@ -53,61 +86,202 @@ export function SoldierController ({
         z: Math.cos(angle) * MOVEMENT_SPEED * delta,
       };
 
-      rigidBody.current.applyImpulse(impulse, true);
+      rigidbody.current.applyImpulse(impulse, true);
     } else {
       setAnimation("Idle");
     }
 
+    if (joystick.isPressed("fire")) {
+      setAnimation(
+        joystick.isJoystickPressed() && angle ? "Run_Shoot" : "Idle_Shoot"
+      );
+
+      if (isHost()) {
+        if (Date.now() - lastShoot.current > FIRE_RATE) {
+          lastShoot.current = Date.now();
+
+          const newBullet = {
+            id: state.id + "-" + +new Date(),
+            position: vec3(rigidbody.current.translation()),
+            angle,
+            player: state.id,
+          };
+
+          onFire(newBullet);
+        }
+      }
+    }
+
     if (isHost()) {
-      state.setState("pos", rigidBody.current.translation());
+      state.setState("pos", rigidbody.current.translation());
     } else {
       const pos = state.getState("pos");
 
-      if (pos) rigidBody.current.setTranslation(pos);
+      if (pos) {
+        rigidbody.current.setTranslation(pos);
+      }
     }
   });
 
-  if (joystick.isPressed("fire")) {
-    setAnimation("Idle_Shoot");
-
+  useEffect(() => {
     if (isHost()) {
-      if (Date.now() - lastShoot.current > FIRE_RATE) {
-        lastShoot.current = Date.now();
-
-        const newBullet = {
-          id: state.id + "-" + new Date(),
-          position: vec3(rigidBody.current.translation()),
-          angle,
-          player: state.id
-        };
-      }
+      spawnRandomly();
     }
-  }
+  }, []);
+
+  useEffect(() => {
+    if (state.state.dead) {
+      const audio = new Audio("/audios/dead.mp3");
+
+      audio.volume = 0.5;
+      audio.play();
+    }
+  }, [state.state.dead]);
+
+  useEffect(() => {
+    if (state.state.health < 100) {
+      const audio = new Audio("/audios/hurt.mp3");
+
+      audio.volume = 0.4;
+      audio.play();
+    }
+  }, [state.state.health]);
+
+  
+  useEffect(() => {
+    if (character.current && userPlayer) {
+      directionalLight.current.target = character.current;
+    }
+  }, [character.current]);
 
   return (
-    <group ref={group} {...props}>
-      {
-        userPlayer && (
-          <CameraControls ref={controls} />
-        )
-      }
-
+    <group {...props} ref={group}>
+      {userPlayer && <CameraControls ref={controls} />}
       <RigidBody
-        lockRotations
-        ref={rigidBody}
+        ref={rigidbody}
         colliders={false}
         linearDamping={12}
+        lockRotations
         type={isHost() ? "dynamic" : "kinematicPosition"}
+        onIntersectionEnter={({ other }) => {
+          if (
+            isHost() &&
+            other.rigidBody.userData.type === "bullet" &&
+            state.state.health > 0
+          ) {
+            const newHealth = state.state.health - other.rigidBody.userData.damage;
+
+            if (newHealth <= 0) {
+              state.setState("deaths", state.state.deaths + 1);
+              state.setState("dead", true);
+              state.setState("health", 0);
+
+              rigidbody.current.setEnabled(false);
+              
+              setTimeout(() => {
+                spawnRandomly();
+                rigidbody.current.setEnabled(true);
+                state.setState("health", 100);
+                state.setState("dead", false);
+              }, 2000);
+
+              onKilled(state.id, other.rigidBody.userData.player);
+            } else {
+              state.setState("health", newHealth);
+            }
+          }
+        }}
       >
+        <PlayerInfo state={state.state} />
+
         <group ref={character}>
           <Soldier
-            color={state.state.profile.color}
+            color={state.state.profile?.color}
             animation={animation}
+            weapon={weapon}
           />
+
+          { userPlayer && <Crosshair position={[WEAPON_OFFSET.x, WEAPON_OFFSET.y, WEAPON_OFFSET.z]} /> }
         </group>
 
+        {userPlayer && (
+          <directionalLight
+            ref={directionalLight}
+            position={[25, 18, -25]}
+            intensity={0.3}
+            castShadow={!downgradedPerformance}
+            shadow-camera-near={0}
+            shadow-camera-far={100}
+            shadow-camera-left={-20}
+            shadow-camera-right={20}
+            shadow-camera-top={20}
+            shadow-camera-bottom={-20}
+            shadow-mapSize-width={2048}
+            shadow-mapSize-height={2048}
+            shadow-bias={-0.0001}
+          />
+        )}
         <CapsuleCollider args={[0.7, 0.6]} position={[0, 1.28, 0]} />
       </RigidBody>
     </group>
   );
-}
+};
+
+const PlayerInfo = ({ state }) => {
+  const health = state.health;
+  const name = state.profile.name;
+  return (
+    <Billboard position-y={2.5}>
+      <Text position-y={0.36} fontSize={0.4}>
+        {name}
+        <meshBasicMaterial color={state.profile.color} />
+      </Text>
+
+      <mesh position-z={-0.1}>
+        <planeGeometry args={[1, 0.2]} />
+        <meshBasicMaterial color="black" transparent opacity={0.5} />
+      </mesh>
+
+      <mesh scale-x={health / 100} position-x={-0.5 * (1 - health / 100)}>
+        <planeGeometry args={[1, 0.2]} />
+        <meshBasicMaterial color="red" />
+      </mesh>
+    </Billboard>
+  );
+};
+
+const Crosshair = (props) => {
+  return (
+    <group {...props}>
+      <mesh position-z={1}>
+        <boxGeometry args={[0.05, 0.05, 0.05]} />
+        <meshBasicMaterial color="black" transparent opacity={0.9} />
+      </mesh>
+
+      <mesh position-z={2}>
+        <boxGeometry args={[0.05, 0.05, 0.05]} />
+        <meshBasicMaterial color="black" transparent opacity={0.85} />
+      </mesh>
+
+      <mesh position-z={3}>
+        <boxGeometry args={[0.05, 0.05, 0.05]} />
+        <meshBasicMaterial color="black" transparent opacity={0.8} />
+      </mesh>
+
+      <mesh position-z={4.5}>
+        <boxGeometry args={[0.05, 0.05, 0.05]} />
+        <meshBasicMaterial color="black" opacity={0.7} transparent />
+      </mesh>
+
+      <mesh position-z={6.5}>
+        <boxGeometry args={[0.05, 0.05, 0.05]} />
+        <meshBasicMaterial color="black" opacity={0.6} transparent />
+      </mesh>
+
+      <mesh position-z={9}>
+        <boxGeometry args={[0.05, 0.05, 0.05]} />
+        <meshBasicMaterial color="black" opacity={0.2} transparent />
+      </mesh>
+    </group>
+  );
+};

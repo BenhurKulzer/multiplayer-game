@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef } from "react";
-import { useAnimations, useGLTF } from "@react-three/drei";
+
 import { useGraph } from "@react-three/fiber";
+import { useAnimations, useGLTF } from "@react-three/drei";
 import { Color, LoopOnce, MeshStandardMaterial } from "three";
 import { SkeletonUtils } from "three-stdlib";
 
@@ -24,16 +25,16 @@ const WEAPONS = [
 export function Soldier({
   color = "black",
   animation = "Idle",
-  weapon = "RocketLauncher",
+  weapon = "AK",
   ...props
 }) {
   const group = useRef();
   const { scene, materials, animations } = useGLTF(
     "/models/Character_Soldier.gltf"
   );
-  // Skinned meshes cannot be re-used in threejs without cloning them
+
   const clone = useMemo(() => SkeletonUtils.clone(scene), [scene]);
-  // useGraph creates two flat object collections for nodes and materials
+
   const { nodes } = useGraph(clone);
   const { actions } = useAnimations(animations, group);
   if (actions["Death"]) {
@@ -54,7 +55,6 @@ export function Soldier({
     [color]
   );
   useEffect(() => {
-    // HIDING NON-SELECTED WEAPONS
     WEAPONS.forEach((wp) => {
       const isCurrentWeapon = wp === weapon;
       nodes[wp].visible = isCurrentWeapon;
