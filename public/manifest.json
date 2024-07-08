@@ -1,0 +1,14 @@
+{
+    "name": "War Room - @bsk.dev",
+    "description": "A FPS Game maded with React.",
+    "start_url": "/",
+    "lang": "pt-BR",
+    "theme_color": "#36C2CE",
+    "display": "standalone",
+    "orientation": "landscape",
+    "icons": [
+      {
+        "src": "images/icon.png"
+      }
+    ]
+  }
